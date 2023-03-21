@@ -1,0 +1,308 @@
+---
+title: "Two-way ANOVA test based on the STAR Experiment"
+author: "chenrui_lu"
+date: "2023-02-08"
+output: html_document
+---
+
+# **Abstract**
+
+This paper examines the data collected by the STAR program to see if there are significant differences in math scaled scores in 1^st^ grade across class types; and if so, which type of classes receive the highest scores on the math test. After pre-processing the data and descriptive statistical analysis, it was found that class types affected math scores, while the school did not have an obvious effect on math scores. Next, using a two-way ANOVA test to quantitatively analyze whether there is a statistical significance of differences in the math scores among three class types and those among schools. After conducting a sensitivity analysis, including hypothesis testing and using non-parametric methods to test the reasonableness of the findings, we obtained that the small class has a significant effect on math scores.
+
+# **Introduction**
+
+Our project uses mainly the dataset from the Tennessee Student Teacher Achievement Ratio (STAR), conducted between 1985 and 1989 based on early childhood education theory, which was a large-scale, randomized, longitudinal experiment. The STAR project examined the effects of different class types on children's academic performance by collecting children's academic performance over four consecutive years, beginning in kindergarten.
+
+The study randomly assigned students to small classes, regular classes, and regular classes with a full-time aide. Class placement remained constant throughout the school year, with no interventions other than class types and the provision of a full-time aide to the class. The large sample and random assignment also provide some assurance of data validity.
+
+In this project, we only examine whether there are significant differences in math scores across class types in first grade and if so, we examine which types of classes are associated with the highest math scores. In particular, we also treat each teacher as the basic unit of analysis, i.e., we will consider each class (uniquely labeled by a specific teacher) as an observation.
+
+This study has some positive implications for both the social and educational domains. By controlling for class size, it can further improve student academic performance. This not only allows low-income students to achieve the same academic performance while spending less on tuition; it also brings new momentum to the education industry as a whole and provides a solid foundation for students to continue learning throughout their lives.
+
+# **Background**
+
+In the STAR project, all Tennessee schools offering K-3 were invited to participate, which ensured the diversity of the sample. Also, each participating school had sufficient student populations to offer small classes (15-17 students), regular classes (22-25 students), and regular classes with a full-time aide (22-25 students) to make the experiment run smoothly. A total of 79 schools met the requirements, providing nearly 7,000 students per grade, indicating further credibility for this experiment, as the large sample also provides some assurance of the inevitable student mobility. For the STAR sampling mechanism, students and teachers were randomly assigned to one of the three class types. Random sampling ensures that student achievement is only affected by class size and that there is no assignment of individual outstanding students or teachers to specific groups.
+
+For this study, which is concerned with whether there are significant differences in math scores across class sizes in first grade, the target population for this experiment was first-grade students in Tennessee. And four variables, g1tchid, g1schid, g1classtype and g1mathss, were selected for the two-way ANOVA experiment.
+
+```{r,echo=FALSE,results='hide',message=FALSE,warning=FALSE}
+library(foreign)
+data=read.spss("STAR_Students.sav",to.data.frame=TRUE)
+```
+
+```{r,echo=FALSE,results='hide'}
+length(names(data))#there are 379 variablels
+```
+
+```{r,echo=FALSE,results='hide',message=FALSE,warning=FALSE}
+library(dplyr)
+#check missing values
+star.dat = data%>%dplyr::select(g1tmathss, g1classtype, g1schid, g1tchid)%>%mutate(na.count=rowSums(is.na(.))) 
+table(star.dat$na.count)
+
+data=data.frame(schid=data$g1schid,tchid=data$g1tchid,classtype=data$g1classtype,math=data$g1tmathss)
+#drop na
+data=na.omit(data)
+```
+
+```{r,echo=FALSE,results='hide'}
+str(data)
+```
+
+```{r,echo=FALSE,results='hide'}
+math=aggregate(data$math,by=list(data$tchid),mean)
+math=data.frame(tchid=math$Group.1,math=math$x)
+newdata=merge(data,math,by="tchid",all=T)
+newdata=newdata[,-4]
+newdata=newdata[!duplicated(newdata),]
+newdata$classtype=as.factor(newdata$classtype)
+newdata$schid=as.factor(newdata$schid)
+```
+
+# **Descriptive analysis**
+
+**Data pre-processing and variables selection**
+
+First, we have to deal with the missing values, after extracting the four variables g1tchid, g1schid, g1classtype and g1mathss, we test the number of NA for the new data and find that the data are all missing as 4772, missing one as 231, and no missing as 6598, which means that the missing one value accounts for a relatively small amount in the data set. Therefore, we can remove all the rows containing missing values to get 6598 observations. Next, we obtain math scaled scores in the 1st grade with teachers based on a group by 'teacherid' and averaging the scores of each group math as the unit.
+
+**Descriptive statistics for the outcome with key variables**
+
+From the dataset, we can see that each teacher was assigned a various number of students, and we integrated the students' math scores, and the table below shows the summary measure for each teacher.
+
+```{r,echo=FALSE}
+data%>%group_by(data$tchid)%>%summarise(min=min(math),max=max(math),mean=mean(math),quantile0.25=quantile(math,0.25),quantile0.75=quantile(math,0.75))
+```
+
+According to the following table 'relation between classtype and math score', we found that the data for different types of classes is imbalanced, and 1876, 2507 and 2224 of observations for small, regular-size, regular-with-aide classes respectively. Each group has the same maximum value, while the small class has a higher minimum, mean, and median of the scores. Roughly, we can find that a small class has higher math scores, but because the small class has the smallest number of observations and it has a large standard deviation, we cannot directly determine that it has significant differences from the other two groups.
+
+```{r,echo=FALSE}
+N=table(data$classtype)
+Min=tapply(data$math,data$classtype,min)
+Max=tapply(data$math,data$classtype,max)
+mean=tapply(data$math,data$classtype,mean)
+median=tapply(data$math,data$classtype,median)
+sd=tapply(data$math,data$classtype,sd)
+summarize_table=rbind(Min,Max,mean,median,sd)
+colnames(summarize_table)=c("classtype=1,n=1867","classtype=2,n=2507","classtype=3,n=2224")
+summarize_table
+```
+
+Also, the relationship between school and math scores can be shown in a bar chart.
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+#Investigate the relationship between school indicator, class types, and math scaled scores in 1st grade.
+#plot
+library(ggplot2)
+```
+
+```{r,echo=FALSE}
+#outcome vs school IDs
+N1=table(data$schid)
+Min1=tapply(data$math,data$schid,min)
+Max1=tapply(data$math,data$schid,max)
+mean1=tapply(data$math,data$schid,mean)
+median1=tapply(data$math,data$schid,median)
+sd1=tapply(data$math,data$schid,sd)
+summarize_table1=rbind(Min1,Max1,mean1,median1,sd1)
+#summarize_table1
+par(mfrow=c(2,3))
+hist(Min1,main="Histogram of school IDs(min)")
+hist(Max1,main="Histogram of school IDs(max)")
+hist(mean1,main="Histogram of school IDs(mean)")
+hist(median1,main="Histogram of school IDs(median)")
+hist(sd1,main="Histogram of school IDs(sd)")
+```
+
+From these histogram, we can see an overall for the math score distribution and find that the differences among schools are slightly.
+
+To better show the relationship between school indicators, class types, and math scaled scores in 1st grade. we use ggplot to plot math outcome v.s. class type and math outcome v.s. class type.
+
+```{r,echo=FALSE}
+ggplot(data=newdata)+geom_boxplot(mapping=aes(x=classtype,y=math.y,fill=classtype))+labs(title="Boxplot of class type",x="classtype",y="math score")
+ggplot(data=newdata)+geom_boxplot(mapping=aes(x=schid,y=math.y))+labs(title="Boxplot of schoolid",x="schoolid",y="math score")
+
+```
+
+By math outcome v.s. classtype, we find that small class has better performance. From math outcome v.s. school IDs, we find that although the range among different schools varies, the mean math score of each school is slightly close to the others, thus it illustrates that school may not have a significant effect on students.
+
+# **Inferential analysis**
+
+For this experiment, we use the Two-way ANOVA model to investigate whether different class sizes have an effect on student performance in mathematics. We consider a dataset of a first-grade student, from 76 schools with three different class sizes: small, regular, and regular with an aide.
+
+In practice, we use the factor effect form: $Y_{ijk}=\mu_{ijk}+\epsilon_{ijk}=\mu_{..}+\alpha_i+\beta_j+(\alpha\beta)_{ij}+\epsilon_{ijk}$,
+
+where {$\epsilon_{ijk}$} are i.i.d. $N(0,\sigma^2)$, k=1,...,n, j=1,...,76, i=1,2,3
+
+And the index i represents the class type: small (i=1), regular (i=2), regular with an aide (i=3), and the index j represents the school indicator.
+
+The factor effects are still defined as follows
+
+$\mu_{..}=\Sigma_{i=1}^a\Sigma_{j=1}^b\mu_{ij}/(ab)$, $\mu_{i⋅}=\Sigma_{j=1}^b\mu_{ij}/b$,$\mu_{⋅j}=\Sigma_{i=1}^a\mu_{ij}/a$.
+
+Furthermore, we have $\alpha_i=\mu_{i⋅}−\mu{⋅⋅},\beta_j=\mu_{⋅j}-\mu_{⋅⋅}$, $(\alpha\beta)_{ij}=\mu_{ij}−\mu_{i.}−\mu_{.j}+\mu_{..}$
+
+And estimators follow the same form by plugging the sample means in the equations above.
+
+And for this model, the constraints are as follows:
+
+$\sum_{i=1}^3\alpha_i = \sum_{j=1}^{76}\beta_j=0$
+
+$\sum_{i=1}^3(\alpha\beta)_{ij}=\sum^{76}_{j=1}(\alpha\beta)_{ij}=0$
+
+The assumptions for this model are as follows:
+
+1\. the error terms are homogeneity
+
+2\. the error terms are normality
+
+3\. the error terms are independence
+
+4\. there are no outliers that may impact normality and homogeneity of variance.
+
+And these assumptions can be verified by the residual plot of the fitted model, Levene's test, etc. The specific results will be shown in the sensitivity analysis.
+
+After turning the school indicator as a factor, we use aov() to do the ANOVA analysis. We also include a cross-term to compare whether class types and schools have an interaction effect on first graders' math achievement, and the two ANOVA tests' results are as follows.
+
+```{r,echo=FALSE}
+ #two-way anova
+anova.fit=aov(math.y~classtype+schid,data=newdata)
+summary(anova.fit)
+#two-way anova with interaction
+anova.fit1=aov(math.y~classtype*schid,data=newdata)
+summary(anova.fit1)
+```
+
+Compared with two ANOVA test results, it can be found that under 0.95 confidence level, the interaction term could be dropped. Therefore, the model can be changed to
+
+$Y_{ijk}=\mu_{ijk}+\epsilon_{ijk}=\mu_{..}+\alpha_i+\beta_j+\epsilon_{ijk}$
+
+```{r,echo=FALSE,results='hide'}
+c(min(anova.fit$coefficients[-c(1,2,3)]),max(anova.fit$coefficients[-c(1,2,3)]))
+```
+
+Besides, the estimated coefficients for school IDs are between -9.230365 and 77.883336, which means the school influence the math score significantly. This conclusion also can be concluded by the ANOVA test result, which shows that the P-value for the schid variable is \<2e-16. So under 0.95 confidence level, we can reject the null hypothesis that the school can not be dropped from the model.
+
+And the main effect of classtype plot as below.
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+library(gplots)
+plotmeans(math.y~classtype,data=newdata,xlab="classtype",ylab="math score",main="Main effect,classtype")
+#plotmeans(math.y~schid,data=newdata,xlab="school",ylab="math score",main="Main effect,school")
+```
+
+When we conclude that the class type has a significant impact on student's math performance, to address the second question, which class type is most effective in improving academic performance, we use the Tukey test to figure out the differences in mean levels of three class types under 0.95 confidence level. According to the results in the following figure, small-class math performance is outstanding among three types of class sizes, which also means that small class sizes are the most effective way to improve academic performance.
+
+```{r,echo=FALSE}
+#tukey test
+tukey_test=TukeyHSD(anova.fit,conf.level = 0.95,which=1)
+plot(tukey_test)
+```
+
+# **Sensitive analysis**
+
+## Diagnostics
+
+Moreover, using the function plot() in R, we perform the basic diagnostic on the model assumptions. The result is shown in the figure below. From the residuals v.s. fitted plot, we observe that the red line is mostly a straight line, which means there are no obvious patterns in the residual, so the quality of the model fit is quite good. As for the second plot(Normal Q-Q plot), it illustrates that the residuals quite fit the normal distribution so that the data fit the assumption for the ANOVA test.
+
+```{r,echo=FALSE}
+par(mfrow=c(2,2))
+plot(anova.fit)
+```
+
+To test whether the error terms are homogeneous, we use Levene's test. According to the result, we can find that the P-value for the classtype is 0.0526 and the P-value of schid is 0.0314, so under a 0.95 confidence level, as for the classtype, we can reject the null hypothesis that the variance of classtype is homogeneous, which means that the test results are all obey the assumptions.
+
+```{r,echo=FALSE}
+newdata$res.abs=abs(anova.fit$residuals)
+summary(aov(res.abs~classtype+schid,data=newdata))
+```
+
+According to the diagnostics, the response variables fit the assumptions of the two-way ANOVA model well. In other words, the model is quite appropriate for the STAR dataset.
+
+## Alternative methods
+
+**Other summary measures**
+
+To prove the validity of the model, instead of using the mean, we can also use the median scores of every class as "class quality", and the ANOVA test's result is as follows. We can find that classtype still has a significant impact on math scores, and the test also does not need the interaction of classtype and school. Besides, the small class has the highest math score among those of other class sizes.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+data1=read.spss("STAR_Students.sav",to.data.frame=TRUE)
+data1=data.frame(schid=data1$g1schid,tchid=data1$g1tchid,classtype=data1$g1classtype,math=data1$g1tmathss)
+data1=na.omit(data1)
+```
+
+```{r,echo=FALSE,warning=FALSE}
+math1=aggregate(data1$math,by=list(data1$tchid),median)
+math1=data.frame(tchid=math1$Group.1,math=math1$x)
+newdata1=merge(data1,math1,by="tchid",all=T)
+newdata1=newdata1[,-4]
+newdata1=newdata1[!duplicated(newdata1),]
+newdata1$classtype=as.factor(newdata1$classtype)
+newdata1$schid=as.factor(newdata1$schid)
+```
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+par(mfrow=c(2,2))
+ggplot(data=newdata1)+geom_boxplot(mapping=aes(x=newdata1$classtype,y=newdata1$math.y))+labs(title="Boxplot of classtype",x="classtype",y="math score")
+ggplot(data=newdata1)+geom_boxplot(mapping=aes(x=schid,y=math.y))+labs(title="Boxplot of schoolid",x="schoolid",y="math score")
+```
+
+```{r,echo=FALSE}
+anova_median_fit=aov(math.y~classtype+schid,data=newdata1)
+#summary(anova_median_fit)
+anova_median_fit1=aov(math.y~classtype*schid,data=newdata1)
+summary(anova_median_fit1)
+```
+
+```{r,echo=FALSE}
+tukey.test1=TukeyHSD(anova_median_fit,conf.level = 0.95,which=1)
+plot(tukey.test1)
+```
+
+And by the results below, we can find that the model also fits assumptions. Because the plot of 'Residuals vs Fitted' shows that there is no obvious pattern in the residuals.
+
+```{r,echo=FALSE}
+par(mfrow=c(2,2))
+plot(anova_median_fit)
+```
+
+And here is the Levene's test for this new model, which illustrates that under 0.999 confidence level we can reject the null hypothesis that the variance of classtype is homogeneous. As for 0.95 confidence level, we can accept the null hypothesis that the variance of classtype is not homogeneous, but the unstable property is slight.
+
+```{r,echo=FALSE}
+newdata1$res.abs=abs(anova_median_fit$residuals)
+summary(aov(res.abs~classtype+schid,data=newdata1))
+```
+
+**Nonparametric approach**
+
+To further verify the validity of the model, we used a nonparametric approach to rank the math scores and used the ANOVA test again, and the results are shown in the table below. It can be seen that both classtype and school have some effect on teaching, and there is a larger gap between the math score of small classes and those of other class types.
+
+```{r,echo=FALSE}
+data$schid=as.factor(data$schid)
+data$rank=rank(data$math)
+anova_rank=aov(rank~classtype+schid,data=data)
+summary(anova_rank)
+tukey.test2=TukeyHSD(anova_rank,conf.level = 0.95,which=1)
+plot(tukey.test2)
+```
+
+# **Disucussion**
+
+For our project, we aim to find whether there are significant differences in math scaled scores in 1st grade across class types; and if so, which type of classes receive the highest scores on the math test. After using various methods to preprocess the data, two-way ANOVA test, and diagnostic, we conclude that there are significant differences in math scaled scores in 1st grade across class types, and the small class receives the highest scores on the math test.
+
+Based on this experiment, we found that small class size had a significant effect on student performance in mathematics and that even the academic performance of a regular class with the addition of a full-time teaching assistant did not compare to the academic performance of students in a small class without a full-time aide. Therefore, the most effective instruction can be achieved by using redundant full-time teaching assistants as small classroom teachers and keeping the first-grade class size to about 15 students.
+
+Moreover, controlling class size does not mean an absolute increase in student performance. While controlling class size, teachers and staff should also make corresponding changes in instructional planning. For example, students can start small classes early and keep the small class environment for a longer period, among other methods.
+
+# Reference {.unnumbered}
+
+1.Achilles, C. M. (2012, September 30). Class-size policy: The Star Experiment and related class-size studies. NCPEA policy brief. volume 1, Number
+
+2\. NCPEA Publications. Retrieved February 17, 2023, from <https://eric.ed.gov/?id=ED540485> 2.jnwei21. (n.d.). JNWEI21/STA207-project1. GitHub. Retrieved February 17, 2023, from <https://github.com/jnwei21/STA207-project1>
+
+# Session info {.unnumbered}
+
+[Report information of your `R` session for reproducibility.]{style="color:blue"}
+
+```{r}
+sessionInfo()
+```
